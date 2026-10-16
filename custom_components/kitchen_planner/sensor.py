@@ -1,0 +1,105 @@
+"""Sensors: the week's dinners, the estimated spend, staples due and leftovers."""
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+from .coordinator import KitchenPlannerCoordinator
+from .entity import KitchenPlannerEntity
+
+
+@dataclass(frozen=True, kw_only=True)
+class KPSensorDescription(SensorEntityDescription):
+    value: Callable[[dict[str, Any]], Any]
+    attrs: Callable[[dict[str, Any]], dict[str, Any]]
+
+
+def _dinners(d: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "week_start": d["week_start"],
+        "days": [{k: day[k] for k in ("date", "day", "name", "slug", "recipe_id")}
+                 for day in d["days"]],
+        "unmapped": d["unmapped"],
+    }
+
+
+def _total(d: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "is_floor": d["is_floor"],
+        "recipe_cost": d["recipe_cost"],
+        "staples_cost": d["staples_cost"],
+        "lines": len(d["rows"]) + len(d["staples"]),
+        "unpriced": d["unpriced"],
+        "no_pack_size": d["no_pack_size"],
+        "problems": d["problems"],
+    }
+
+
+def _staples(d: dict[str, Any]) -> dict[str, Any]:
+    keep = ("canonical", "label", "typical_qty", "est_cost", "due_on",
+            "median_interval_days", "last_purchased")
+    return {
+        "items": [{k: s.get(k) for k in keep} for s in d["staples"]],
+        "to_check": [{k: s.get(k) for k in keep} for s in d["staples_to_check"]],
+        "covered_by_recipes": d["absorbed"],
+    }
+
+
+SENSORS: tuple[KPSensorDescription, ...] = (
+    KPSensorDescription(
+        key="dinners_planned", icon="mdi:silverware-fork-knife",
+        value=lambda d: sum(1 for day in d["days"] if not day.get("flex")),
+        attrs=_dinners,
+    ),
+    KPSensorDescription(
+        key="estimated_total", icon="mdi:cart-outline",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement="AUD", suggested_display_precision=2,
+        value=lambda d: d["estimated_total"], attrs=_total,
+    ),
+    KPSensorDescription(
+        key="staples_due", icon="mdi:basket-fill",
+        state_class=SensorStateClass.MEASUREMENT,
+        value=lambda d: len(d["staples"]), attrs=_staples,
+    ),
+    KPSensorDescription(
+        key="leftovers", icon="mdi:fridge-alert-outline",
+        state_class=SensorStateClass.MEASUREMENT,
+        value=lambda d: len(d["leftovers"]),
+        attrs=lambda d: {"items": d["leftovers"]},
+    ),
+)
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
+                            async_add_entities: AddEntitiesCallback) -> None:
+    coordinator: KitchenPlannerCoordinator = entry.runtime_data
+    async_add_entities(KPSensor(coordinator, desc) for desc in SENSORS)
+
+
+class KPSensor(KitchenPlannerEntity, SensorEntity):
+    entity_description: KPSensorDescription
+
+    def __init__(self, coordinator: KitchenPlannerCoordinator,
+                 desc: KPSensorDescription) -> None:
+        super().__init__(coordinator, desc.key)
+        self.entity_description = desc
+
+    @property
+    def native_value(self) -> Any:
+        return self.entity_description.value(self.coordinator.data)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return self.entity_description.attrs(self.coordinator.data)

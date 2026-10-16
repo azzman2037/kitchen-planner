@@ -1,0 +1,14 @@
+{
+  "domain": "kitchen_planner",
+  "name": "Kitchen Planner",
+  "after_dependencies": ["mealie"],
+  "codeowners": ["@azzman2037"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/azzman2037/kitchen-planner",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/azzman2037/kitchen-planner/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

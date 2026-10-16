@@ -1,0 +1,59 @@
+[
+ {
+  "id": "butter-chicken",
+  "name": "Butter Chicken",
+  "serves": 4,
+  "ingredients": [
+   {
+    "item": "chicken thigh fillets",
+    "qty": 800,
+    "unit": "g",
+    "canonical": "chicken_thigh",
+    "aisle": "meat & seafood"
+   },
+   {
+    "item": "thickened cream",
+    "qty": 150,
+    "unit": "ml",
+    "canonical": "cream_thickened",
+    "aisle": "dairy, eggs & fridge"
+   },
+   {
+    "item": "salt",
+    "qty": 1,
+    "unit": "tsp",
+    "canonical": "salt",
+    "aisle": "pantry",
+    "pantry": true
+   }
+  ]
+ },
+ {
+  "id": "tuscan-chicken",
+  "name": "Tuscan Chicken",
+  "serves": 4,
+  "ingredients": [
+   {
+    "item": "chicken thigh fillets",
+    "qty": 550,
+    "unit": "g",
+    "canonical": "chicken_thigh",
+    "aisle": "meat & seafood"
+   },
+   {
+    "item": "thickened cream",
+    "qty": 200,
+    "unit": "ml",
+    "canonical": "cream_thickened",
+    "aisle": "dairy, eggs & fridge"
+   },
+   {
+    "item": "baby spinach",
+    "qty": 100,
+    "unit": "g",
+    "canonical": "spinach",
+    "aisle": "fruit & vegetables"
+   }
+  ]
+ }
+]

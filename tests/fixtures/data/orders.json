@@ -1,0 +1,54 @@
+[
+ {
+  "date": "2026-09-20",
+  "items": [
+   {
+    "canonical": "milk",
+    "product": "Full Cream Milk 3L",
+    "qty": 1,
+    "unit_price": 4.65,
+    "category": "dairy",
+    "is_staple": true
+   }
+  ]
+ },
+ {
+  "date": "2026-09-27",
+  "items": [
+   {
+    "canonical": "milk",
+    "product": "Full Cream Milk 3L",
+    "qty": 1,
+    "unit_price": 4.65,
+    "category": "dairy",
+    "is_staple": true
+   }
+  ]
+ },
+ {
+  "date": "2026-10-04",
+  "items": [
+   {
+    "canonical": "milk",
+    "product": "Full Cream Milk 3L",
+    "qty": 1,
+    "unit_price": 4.65,
+    "category": "dairy",
+    "is_staple": true
+   }
+  ]
+ },
+ {
+  "date": "2026-10-11",
+  "items": [
+   {
+    "canonical": "milk",
+    "product": "Full Cream Milk 3L",
+    "qty": 1,
+    "unit_price": 4.65,
+    "category": "dairy",
+    "is_staple": true
+   }
+  ]
+ }
+]

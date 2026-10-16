@@ -1,0 +1,51 @@
+{
+ "_readme": "test",
+ "cream_thickened": {
+  "perishable": true,
+  "freezable": false,
+  "packs": [
+   {
+    "product": "Cream 300mL",
+    "size": 300,
+    "unit": "ml",
+    "price": 3.5
+   },
+   {
+    "product": "Cream 600mL",
+    "size": 600,
+    "unit": "ml",
+    "price": 5.0
+   }
+  ]
+ },
+ "chicken_thigh": {
+  "perishable": true,
+  "freezable": true,
+  "packs": [
+   {
+    "product": "Chicken thigh 1kg",
+    "size": 1000,
+    "unit": "g",
+    "price": 14.0
+   },
+   {
+    "product": "Chicken thigh 500g",
+    "size": 500,
+    "unit": "g",
+    "price": 8.0
+   }
+  ]
+ },
+ "spinach": {
+  "perishable": true,
+  "freezable": false,
+  "packs": [
+   {
+    "product": "Baby spinach 120g",
+    "size": 120,
+    "unit": "g",
+    "price": 3.0
+   }
+  ]
+ }
+}

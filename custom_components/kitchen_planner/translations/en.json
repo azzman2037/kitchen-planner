@@ -1,0 +1,76 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kitchen Planner",
+        "description": "Links your Mealie dinner plan to the planner data so Home Assistant can build the Coles order.",
+        "data": {
+          "mealie_entry_id": "Mealie",
+          "serves": "Serves",
+          "horizon_days": "Staples horizon",
+          "data_dir": "Data folder (inside /config)"
+        },
+        "data_description": {
+          "mealie_entry_id": "The Mealie instance whose dinner plan drives the shopping list.",
+          "serves": "Household serving size. Recipes are scaled to this.",
+          "horizon_days": "Days of staples cover to buy ahead of the Sunday pickup.",
+          "data_dir": "Folder under /config holding recipes.json, pack-catalogue.json, mealie-map.json and the other planner files."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Kitchen Planner is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Kitchen Planner options",
+        "data": {
+          "mealie_entry_id": "Mealie",
+          "serves": "Serves",
+          "horizon_days": "Staples horizon",
+          "data_dir": "Data folder (inside /config)"
+        },
+        "data_description": {
+          "mealie_entry_id": "The Mealie instance whose dinner plan drives the shopping list.",
+          "serves": "Household serving size. Recipes are scaled to this.",
+          "horizon_days": "Days of staples cover to buy ahead of the Sunday pickup.",
+          "data_dir": "Folder under /config holding recipes.json, pack-catalogue.json, mealie-map.json and the other planner files."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "dinners_planned": {
+        "name": "Dinners planned"
+      },
+      "estimated_total": {
+        "name": "Estimated total"
+      },
+      "staples_due": {
+        "name": "Staples due"
+      },
+      "leftovers": {
+        "name": "Leftovers"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Refresh"
+      }
+    },
+    "todo": {
+      "coles_order": {
+        "name": "Coles order"
+      }
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Refresh",
+      "description": "Re-read the Mealie dinner plan and rebuild the shopping list now."
+    }
+  }
+}
