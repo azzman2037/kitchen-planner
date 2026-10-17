@@ -217,3 +217,15 @@ async def test_weekly_spend_and_aisles(
     spend = hass.states.get("sensor.kitchen_planner_weekly_spend")
     assert spend.state == "unknown"  # fixture orders carry no trolley_total
     assert spend.attributes["history"] == []
+
+
+async def test_line_aisles_cover_every_order_line(
+        hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path: Path) -> None:
+    await _setup(hass, freezer, tmp_path)
+    la = hass.states.get("sensor.kitchen_planner_estimated_total").attributes["line_aisles"]
+    r = await hass.services.async_call(
+        "todo", "get_items", {"entity_id": "todo.kitchen_planner_coles_order"},
+        blocking=True, return_response=True)
+    uids = {i["uid"] for i in r["todo.kitchen_planner_coles_order"]["items"]}
+    assert uids == set(la)
+    assert la["kp:cream_thickened"] == "dairy, eggs & fridge"

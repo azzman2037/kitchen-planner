@@ -17,6 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import KitchenPlannerCoordinator
 from .entity import KitchenPlannerEntity
+from .planner import order_items
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -44,6 +45,7 @@ def _total(d: dict[str, Any]) -> dict[str, Any]:
         "no_pack_size": d["no_pack_size"],
         "problems": d["problems"],
         "aisles": d["aisles"],
+        "line_aisles": {i["uid"]: i["aisle"] for i in order_items(d)},
     }
 
 
