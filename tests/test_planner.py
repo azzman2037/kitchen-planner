@@ -142,3 +142,52 @@ def test_set_and_clear_on_hand_preserve_other_keys() -> None:
     p3 = clear_on_hand(p2, "orange")
     assert p3["orange"] == {"have_until": "2099-01-01", "note": "stopped"}
     assert clear_on_hand(set_on_hand({}, "x", 1, "each", MON, MON), "x") == {}
+
+
+def test_note_titled_with_a_recipe_name_counts_as_that_recipe() -> None:
+    data = load_data(DATA)
+    recipes = {r["id"]: r for r in data["recipes"]}
+    week = build_week([_mp(19, None, "butter chicken "), _mp(20, None, "Takeaway")],
+                      data["mealie_map"], recipes, MON)
+    assert [d["recipe_id"] for d in week.days] == ["butter-chicken", None]
+    assert week.unmapped == []
+
+
+def test_placed_order_replaces_the_list_to_buy() -> None:
+    import copy
+
+    from custom_components.kitchen_planner.planner import placed_order
+
+    data = copy.deepcopy(load_data(DATA))
+    recipes = {r["id"]: r for r in data["recipes"]}
+    week = build_week([_mp(19, "butter-chicken", "Butter Chicken")],
+                      data["mealie_map"], recipes, MON)
+    assert placed_order(data["orders"], MON) is None
+
+    data["orders"].append({
+        "source": "coles-order-email-282559396 (placed order, pickup 2026-10-17)",
+        "date": "2026-10-17", "trolley_total": 266.58, "items": [
+            {"product": "Coles Thickened Cream", "category": "dairy, eggs & fridge",
+             "ordered": 1, "qty": 1, "total_price": 3.2, "canonical": "cream_thickened",
+             "pack_size": 600, "pack_unit": "ml"},
+            {"product": "Coles Herb Punnets Oregano", "category": "fruit & vegetables",
+             "ordered": 1, "qty": 0, "total_price": 0.0, "canonical": "herb_oregano"}]})
+    # An order collected the weekend before a later week is not this week's.
+    assert placed_order(data["orders"], date(2026, 10, 26)) is None
+
+    res = compute(data, week, serves=4)
+    assert res["placed"]["number"] == "282559396"
+    assert res["estimated_total"] == 266.58 and res["is_floor"] is False
+    assert res["staples"] == [] and res["staples_to_check"] == []
+    assert res["rows"]  # the recipe maths still runs, for the leftovers
+    # Butter chicken needs 150 ml; the ordered 600 mL tub leaves 450 ml, and
+    # spinach was not ordered, so it cannot be left over.
+    left = {lo["canonical"]: lo for lo in res["leftovers"]}
+    assert left["cream_thickened"]["display"] == "450 ml"
+    assert "spinach" not in left
+
+    items = order_items(res)
+    assert [i["uid"] for i in items] == ["kp:order:0:cream_thickened", "kp:order:1:herb_oregano"]
+    assert all(i["ordered"] for i in items)
+    assert items[0]["summary"] == "Coles Thickened Cream x1"
+    assert items[1]["description"].endswith("not supplied")

@@ -7,6 +7,7 @@ same code the coles-weekly-planner CLI runs.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -114,6 +115,11 @@ def build_week(mealplans: list[dict[str, Any]], mealie_map: dict[str, str],
     """
     by_slug = {slug: rid for rid, slug in mealie_map.items()
                if not rid.startswith("_")}
+    # A note-only entry titled with a planner recipe's name ("Chicken
+    # Cacciatore") counts as that recipe, so a dinner can be planned before
+    # its recipe is in Mealie.
+    by_name = {str(r.get("name", "")).strip().lower(): rid
+               for rid, r in recipes.items() if r.get("name")}
     days: list[dict[str, Any]] = []
     unmapped: list[str] = []
     end = week_start + timedelta(days=6)
@@ -131,6 +137,8 @@ def build_week(mealplans: list[dict[str, Any]], mealie_map: dict[str, str],
         name = recipe.get("name") or mp.get("title") or "Unnamed"
         if rid and rid not in recipes:
             rid = None
+        if not slug and mp.get("title"):
+            rid = by_name.get(str(mp["title"]).strip().lower())
         if slug and not rid:
             unmapped.append(name)
         days.append({
@@ -246,12 +254,67 @@ def spend_history(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if o.get("date") and o.get("trolley_total")]
 
 
+def placed_order(orders: list[dict[str, Any]], week_start: date) -> dict[str, Any] | None:
+    """The order already placed for this week, if there is one.
+
+    The shop for a week is collected on the Friday to Sunday before it, so an
+    order dated in that window means the week is bought: the dashboard shows
+    what was ordered instead of a list still to buy.
+    """
+    lo, hi = week_start - timedelta(days=3), week_start - timedelta(days=1)
+    found = [o for o in orders if o.get("date")
+             and lo <= date.fromisoformat(o["date"]) <= hi]
+    if not found:
+        return None
+    o = max(found, key=lambda x: x["date"])
+    num = re.search(r"\d{6,}", str(o.get("source", "")))
+    items = [{"product": i["product"], "qty": i.get("qty", 0), "ordered": i.get("ordered", 0),
+              "total": round(float(i.get("total_price") or 0), 2),
+              "aisle": i.get("category") or "other", "canonical": i.get("canonical")}
+             for i in o["items"]]
+    total = o.get("trolley_total") or sum(i["total"] for i in items)
+    return {"date": o["date"], "number": num.group(0) if num else None,
+            "total": round(float(total), 2), "items": items}
+
+
+def _placed_leftovers(leftovers: list[dict], rows: list[dict],
+                      orders: list[dict[str, Any]], when: str) -> list[dict]:
+    """Leftovers re-measured against the packs that were really ordered.
+
+    The engine assumes the catalogue's best pack; the order may hold a bigger
+    one (a 300 g sour cream, not 200 g) or none at all.
+    """
+    order = next(o for o in orders if o.get("date") == when)
+    need = {r["canonical"]: r for r in rows}
+    out = []
+    for lo in leftovers:
+        row = need.get(lo["canonical"])
+        lines = [i for i in order["items"]
+                 if i.get("canonical") == lo["canonical"] and i.get("qty")]
+        if not row or not lines:
+            continue
+        same = [i for i in lines if (i.get("pack_unit") or "").lower() == lo["unit"]
+                and i.get("pack_size")]
+        if len(same) != len(lines):
+            out.append(lo)  # units differ: keep the engine's figure
+            continue
+        bought = sum(float(i["pack_size"]) * int(i["qty"]) for i in same)
+        spare = bought - float(row.get("required") or 0)
+        if spare <= 0:
+            continue
+        out.append({**lo, "surplus": round(spare, 1),
+                    "display": pretty_qty(spare, lo["unit"]),
+                    "waste_pct": round(100 * spare / bought)})
+    return sorted(out, key=lambda s: -s["waste_pct"])
+
+
 def compute(data: dict[str, Any], plan: WeekPlan, *, serves: int = 4,
             horizon: int = 10) -> dict[str, Any]:
     """Run the engine for one week and shape the result for Home Assistant."""
     recipes = {r["id"]: r for r in data["recipes"]}
     as_of = plan.week_start - timedelta(days=1)  # the Sunday pickup
     pantry = active_pantry(data["pantry"], plan.week_start)
+    placed = placed_order(data["orders"], plan.week_start)
     staples = forecast(data["orders"], pantry, as_of, horizon)
     res = compute_list(plan.as_engine_plan(), recipes, data["orders"],
                        pantry, data["catalogue"], staples,
@@ -264,17 +327,26 @@ def compute(data: dict[str, Any], plan: WeekPlan, *, serves: int = 4,
     rows.sort(key=lambda r: (r["aisle"], r["label"]))
 
     order_now = sorted(res["order_now"], key=lambda s: s["due_in_days"])
+    to_check = res["to_check"]
     staples_cost = sum(s.get("est_cost") or 0 for s in order_now)
     total = res["est_total"] + staples_cost
     is_floor = bool(res["unpriced"] or res["no_catalogue"])
+    leftovers = _surplus_rows(rows, data["catalogue"])
+    if placed:
+        # The week is bought: nothing is due, and the total is the real one.
+        # Only packs that were actually ordered can be left over.
+        order_now, to_check, staples_cost = [], [], 0.0
+        total, is_floor = placed["total"], False
+        leftovers = _placed_leftovers(leftovers, rows, data["orders"], placed["date"])
 
     return {
+        "placed": placed,
         "week_start": plan.week_start.isoformat(),
         "days": plan.days,
         "unmapped": plan.unmapped,
         "rows": rows,
         "staples": order_now,
-        "staples_to_check": res["to_check"],
+        "staples_to_check": to_check,
         "absorbed": res["absorbed"],
         "estimated_total": round(total, 2),
         "recipe_cost": round(res["est_total"], 2),
@@ -284,7 +356,7 @@ def compute(data: dict[str, Any], plan: WeekPlan, *, serves: int = 4,
         "no_pack_size": sorted(set(res["no_catalogue"])),
         "on_hand_notes": res["on_hand_notes"],
         "problems": res["problems"],
-        "leftovers": _surplus_rows(rows, data["catalogue"]),
+        "leftovers": leftovers,
         "aisles": _by_aisle(rows),
         "pantry": pantry_view(pantry, data["catalogue"]),
         "spend": spend_history(data["orders"]),
@@ -302,8 +374,17 @@ def order_items(result: dict[str, Any]) -> list[dict[str, str]]:
     """The generated lines for the Coles order to-do list.
 
     Each line keeps a stable uid built from its canonical id, so ticking an
-    item survives the list being rebuilt every few minutes.
+    item survives the list being rebuilt every few minutes. Once the week's
+    order is placed, the list is that order, every line marked as ordered.
     """
+    placed = result.get("placed")
+    if placed:
+        return [{"uid": "kp:order:%d:%s" % (n, i.get("canonical") or "item"),
+                 "summary": "%s x%d" % (i["product"], i["ordered"] or i["qty"]),
+                 "description": ("Ordered %s, $%.2f" % (placed["date"], i["total"])
+                                 if i["qty"] else "Ordered %s, not supplied" % placed["date"]),
+                 "aisle": i["aisle"], "ordered": True}
+                for n, i in enumerate(placed["items"])]
     items = []
     for r in result["rows"]:
         qty = sum((r.get("packs") or {}).values()) or None

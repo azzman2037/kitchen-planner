@@ -28,6 +28,12 @@ list built in Home Assistant matches one built from the command line.
 - `kitchen_planner.import_file`: replace one data file from gzip+base64 JSON, keeping `<name>.bak-<timestamp>`.
 - `kitchen_planner.refresh`.
 
+Once an order collected on the Friday to Sunday before the planning week is in
+`orders.json`, the week counts as ordered: the to-do list shows that order
+(every line ticked), the total is the real one and nothing is due. A Mealie
+note titled with a planner recipe's name ("Chicken Cacciatore") counts as that
+recipe.
+
 The planning week is always the next Monday after today, so on Saturday it is
 the week the Sunday pickup feeds, and from Monday the family is already
 choosing next week's dinners.

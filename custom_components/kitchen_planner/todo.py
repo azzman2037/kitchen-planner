@@ -78,7 +78,8 @@ class ColesOrderList(KitchenPlannerEntity, TodoListEntity):
             TodoItem(
                 uid=line["uid"], summary=line["summary"],
                 description=line["description"],
-                status=(TodoItemStatus.COMPLETED if line["uid"] in done
+                status=(TodoItemStatus.COMPLETED
+                        if line["uid"] in done or line.get("ordered")
                         else TodoItemStatus.NEEDS_ACTION),
             )
             for line in order_items(self.coordinator.data)

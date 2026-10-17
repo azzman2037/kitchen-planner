@@ -38,6 +38,12 @@ const money = (v) => (v === null || v === undefined || isNaN(Number(v)) ? "–" 
 const parseLine = (it) => {
   const sum = String(it.summary || "");
   const desc = String(it.description || "");
+  if (it.uid.startsWith("kp:order:")) {
+    const m = sum.match(/^(.*) x(\d+)$/);
+    const d = desc.match(/\$([\d.]+)/);
+    return { title: m ? m[1] : sum, sub: m && Number(m[2]) > 1 ? "× " + m[2] : "",
+      value: d ? "$" + Number(d[1]).toFixed(2) : (desc.includes("not supplied") ? "Not supplied" : "") };
+  }
   if (it.uid.startsWith("kp:staple:")) {
     const m = sum.match(/^(.*) x(\d+)$/);
     const d = desc.match(/every (\d+)d, last bought (\d{4}-\d{2}-\d{2}), ~\$([\d.]+)/);
@@ -101,6 +107,7 @@ h1 { font-size:34px; line-height:41px; font-weight:700; letter-spacing:.01em; ma
 .check { width:24px; height:24px; border-radius:50%; border:1.5px solid var(--label3); flex:none; display:flex;
   align-items:center; justify-content:center; cursor:pointer; background:none; padding:0; color:#fff; }
 .check.on { background:var(--blue); border-color:var(--blue); }
+.check.got { background:var(--green); border-color:var(--green); cursor:default; }
 .check ha-icon { --mdc-icon-size:16px; }
 .done .t, .done .rv { color:var(--label3); } .done .t { text-decoration:line-through; }
 .x { border:0; background:none; color:var(--label3); cursor:pointer; padding:6px; margin-right:-6px; }
@@ -177,7 +184,7 @@ class KitchenPlannerCard extends HTMLElement {
     const n = (id) => { const s = this._s(id); return s ? s.state : "–"; };
     return `<div class="widgets">
       ${this._widget("mdi:silverware-fork-knife", "#34C759", n(KP.dinners) + "/7", "Dinners planned", "/kitchen-planner/week")}
-      ${this._widget("mdi:cart", "#007AFF", money(n(KP.total)), this._a(KP.total, "is_floor", false) ? "Estimate (at least)" : "Estimate", "/kitchen-planner/shopping")}
+      ${this._widget("mdi:cart", "#007AFF", money(n(KP.total)), this._a(KP.total, "ordered", false) ? "Ordered" : this._a(KP.total, "is_floor", false) ? "Estimate (at least)" : "Estimate", "/kitchen-planner/shopping")}
       ${this._widget("mdi:basket", "#FF9500", n(KP.staples), "Staples due", "/kitchen-planner/shopping")}
       ${this._widget("mdi:fridge-alert", "#FF3B30", n(KP.leftovers), "Leftovers", "/kitchen-planner/week")}
     </div>`;
@@ -234,9 +241,16 @@ class KitchenPlannerCard extends HTMLElement {
       const rank = (g) => (g === "Added by the family" ? 0 : g === "Staples due" ? 2 : 1);
       return rank(a) - rank(b) || a.localeCompare(b);
     });
+    const ordered = this._a(KP.total, "ordered", false);
+    const placed = this._a(KP.total, "order", null);
     const row = (it) => {
       const on = it.status === "completed";
       const l = parseLine(it);
+      if (it.uid.startsWith("kp:order:")) {
+        return `<div class="row chk"><div class="check got"><ha-icon icon="mdi:check"></ha-icon></div>
+        <div class="rt"><div class="t">${esc(l.title)}</div>${l.sub ? `<div class="s">${esc(l.sub)}</div>` : ""}</div>
+        ${l.value ? `<div class="rv">${esc(l.value)}</div>` : ""}</div>`;
+      }
       return `<div class="row chk ${on ? "done" : ""}">
         <button class="check ${on ? "on" : ""}" data-check="${esc(it.uid)}" data-status="${on ? "needs_action" : "completed"}" aria-label="Tick">${on ? '<ha-icon icon="mdi:check"></ha-icon>' : ""}</button>
         <div class="rt"><div class="t">${esc(l.title)}</div>${l.sub ? `<div class="s">${esc(l.sub)}</div>` : ""}</div>
@@ -248,7 +262,9 @@ class KitchenPlannerCard extends HTMLElement {
     order.forEach((g, i) => {
       const [icon, color] = AISLE_ICON[g] || (g === "Staples due" ? ["mdi:basket", "#FF9500"] : g === "Added by the family" ? ["mdi:account-heart", "#AF52DE"] : ["mdi:cart", "#8E8E93"]);
       const open = groups[g].filter((x) => x.status !== "completed").length;
-      const html = `<div class="gh"><span><ha-icon icon="${icon}" style="--mdc-icon-size:14px;color:${color}"></ha-icon> ${esc(cap(g))}</span><span>${open} left</span></div>
+      const isOrder = groups[g].every((x) => x.uid.startsWith("kp:order:"));
+      const count = isOrder ? groups[g].length + (groups[g].length === 1 ? " item" : " items") : open + " left";
+      const html = `<div class="gh"><span><ha-icon icon="${icon}" style="--mdc-icon-size:14px;color:${color}"></ha-icon> ${esc(cap(g))}</span><span>${count}</span></div>
         <div class="group">${groups[g].map(row).join("")}</div><div class="gf"></div>`;
       (g === "Staples due" || i % 2 ? right : left).push(html);
     });
@@ -257,18 +273,27 @@ class KitchenPlannerCard extends HTMLElement {
     const floor = this._a(KP.total, "is_floor", false);
     const missing = [].concat(this._a(KP.total, "unpriced", []), this._a(KP.total, "no_pack_size", []));
     const toCheck = this._a(KP.staples, "to_check", []);
-    return this._top(items.length + " items", "Shopping",
+    const collect = placed ? fmtDate(placed.date, { weekday: "short", day: "numeric", month: "short" }) : "";
+    const orderRow = ordered
+      ? `<div class="row icon"><div class="ri" style="background:var(--green)"><ha-icon icon="mdi:cart-check"></ha-icon></div>
+          <div class="rt"><div class="t">Order${placed && placed.number ? " #" + esc(placed.number) : ""} is in</div>
+          <div class="s">Collect ${esc(collect)} · ${placed ? placed.lines : items.length} items · ${money(placed && placed.total)}</div></div></div>`
+      : `<div class="row icon"><div class="ri" style="background:var(--green)"><ha-icon icon="mdi:cart-check"></ha-icon></div>
+              <div class="rt"><div class="t">Ready to send to Coles</div><div class="s">${isReady ? "Claude fills the trolley on Saturday" : "Turn on when the week is picked"}</div></div>
+              <button class="sw ${isReady ? "on" : ""}" data-ready="1" aria-label="Order ready"></button></div>`;
+    const footer = ordered
+      ? "This is what was ordered for the week. Anything added above goes on next week's list."
+      : floor && missing.length ? "The estimate is a minimum: " + esc(missing.join(", ")) + " have no price on record." : "Tick items as they go in the trolley. Remove anything you don't need this week.";
+    return this._top(ordered ? "Ordered · collect " + collect : items.length + " items", "Shopping",
         `<button class="pill" data-refresh="1"><ha-icon icon="mdi:refresh"></ha-icon>Refresh</button>`)
       + this._widgets()
       + `<div class="cols"><div class="col">
           <div class="gh">Order</div>
           <div class="group">
-            <div class="row icon"><div class="ri" style="background:var(--green)"><ha-icon icon="mdi:cart-check"></ha-icon></div>
-              <div class="rt"><div class="t">Ready to send to Coles</div><div class="s">${isReady ? "Claude fills the trolley on Saturday" : "Turn on when the week is picked"}</div></div>
-              <button class="sw ${isReady ? "on" : ""}" data-ready="1" aria-label="Order ready"></button></div>
-            <div class="add"><ha-icon icon="mdi:plus-circle"></ha-icon><input id="newitem" placeholder="Add an item…" enterkeyhint="done"></div>
+            ${orderRow}
+            <div class="add"><ha-icon icon="mdi:plus-circle"></ha-icon><input id="newitem" placeholder="${ordered ? "Add something for next week…" : "Add an item…"}" enterkeyhint="done"></div>
           </div>
-          <div class="gf">${floor && missing.length ? "The estimate is a minimum: " + esc(missing.join(", ")) + " have no price on record." : "Tick items as they go in the trolley. Remove anything you don't need this week."}</div>
+          <div class="gf">${footer}</div>
           ${left.join("")}
         </div><div class="col">${right.join("")}
           ${toCheck.length ? `<div class="gh">Maybe</div><div class="group">${toCheck.map((s) => `<div class="row"><div class="rt"><div class="t">${esc(s.label)}</div><div class="s">Bought irregularly. Add it above if you need it.</div></div></div>`).join("")}</div><div class="gf"></div>` : ""}
@@ -303,7 +328,8 @@ class KitchenPlannerCard extends HTMLElement {
   _spend() {
     const hist = this._a(KP.spend, "history", []);
     const avg = this._a(KP.spend, "average_last_8", null);
-    const est = this._s(KP.total) ? this._s(KP.total).state : null;
+    const ordered = this._a(KP.total, "ordered", false);
+    const est = this._s(KP.total) && !ordered ? this._s(KP.total).state : null;
     const last = hist.length ? hist[hist.length - 1] : null;
     const max = Math.max(50, ...hist.map((h) => h.total), Number(est) || 0) * 1.1;
     const W = 1000, H = 220, pad = 28, n = hist.length + 1, bw = Math.min(46, (W - pad) / n * 0.62);
@@ -321,12 +347,13 @@ class KitchenPlannerCard extends HTMLElement {
       + `<div class="widgets">
           ${this._widget("mdi:receipt", "#007AFF", money(last && last.total), last ? "Last order · " + fmtDate(last.date, { day: "numeric", month: "short" }) : "Last order")}
           ${this._widget("mdi:chart-bell-curve", "#FF9500", money(avg), "Average of last 8")}
-          ${this._widget("mdi:cart-arrow-right", "#34C759", money(est), "Next order estimate")}
+          ${ordered ? this._widget("mdi:cart-check", "#34C759", "Done", "This week's shop is ordered")
+            : this._widget("mdi:cart-arrow-right", "#34C759", money(est), "Next order estimate")}
           ${this._widget("mdi:counter", "#8E8E93", hist.length, "Orders on record")}
         </div>
         <div class="gh">Order totals</div>
         <div class="group chart"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${avgLine}${bars}${estBar}</svg></div>
-        <div class="gf">The dashed green bar is the estimate for the next order. Specials and staple price trends are coming later.</div>
+        <div class="gf">${ordered ? "The darker bar is this week's order. Next week's estimate appears here from Monday." : "The dashed green bar is the estimate for the next order."} Specials and staple price trends are coming later.</div>
         <div class="cols"><div class="col"><div class="gh">Recent orders</div><div class="group">${recent || '<div class="row"><div class="rt"><div class="t muted">No orders yet</div></div></div>'}</div></div><div class="col"></div></div>`;
   }
 

@@ -36,7 +36,11 @@ def _dinners(d: dict[str, Any]) -> dict[str, Any]:
 
 
 def _total(d: dict[str, Any]) -> dict[str, Any]:
+    placed = d.get("placed")
     return {
+        "ordered": bool(placed),
+        "order": ({k: placed[k] for k in ("date", "number", "total")}
+                  | {"lines": len(placed["items"])}) if placed else None,
         "is_floor": d["is_floor"],
         "recipe_cost": d["recipe_cost"],
         "staples_cost": d["staples_cost"],

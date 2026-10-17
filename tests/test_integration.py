@@ -229,3 +229,32 @@ async def test_line_aisles_cover_every_order_line(
     uids = {i["uid"] for i in r["todo.kitchen_planner_coles_order"]["items"]}
     assert uids == set(la)
     assert la["kp:cream_thickened"] == "dairy, eggs & fridge"
+
+
+async def test_placed_order_shows_as_ordered(
+        hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path: Path) -> None:
+    import json as _json
+
+    entry = await _setup(hass, freezer, tmp_path)
+    folder = tmp_path / "kp"
+    orders = _json.loads((folder / "orders.json").read_text())
+    orders.append({"source": "coles-order-email-282559396", "date": "2026-10-17",
+                   "trolley_total": 266.58, "items": [
+                       {"product": "Coles Thickened Cream", "category": "dairy, eggs & fridge",
+                        "ordered": 1, "qty": 1, "total_price": 3.2,
+                        "canonical": "cream_thickened"}]})
+    (folder / "orders.json").write_text(_json.dumps(orders))
+    await hass.services.async_call(DOMAIN, "refresh", {}, blocking=True)
+    await hass.async_block_till_done()
+
+    total = hass.states.get("sensor.kitchen_planner_estimated_total")
+    assert float(total.state) == 266.58
+    assert total.attributes["ordered"] is True
+    assert total.attributes["order"]["number"] == "282559396"
+    assert hass.states.get("sensor.kitchen_planner_staples_due").state == "0"
+    r = await hass.services.async_call(
+        "todo", "get_items", {"entity_id": "todo.kitchen_planner_coles_order"},
+        blocking=True, return_response=True)
+    items = r["todo.kitchen_planner_coles_order"]["items"]
+    assert [(i["summary"], i["status"]) for i in items] == [("Coles Thickened Cream x1", "completed")]
+    assert entry is not None
