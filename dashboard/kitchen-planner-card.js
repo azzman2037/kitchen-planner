@@ -1,5 +1,6 @@
 /* Kitchen Planner card: iOS-style views for the Kitchen dashboard.
- * Config: { type: custom:kitchen-planner-card, view: week | shop | pantry | spend }
+ * Config: { type: custom:kitchen-planner-card, view: week | shop | pantry | spend | recipes,
+ *           mealie_url (recipes view, default http://192.168.1.46:9000), mealie_group (default home) }
  * Reads the kitchen_planner sensors/todo; writes only through HA services. */
 const KP = {
   dinners: "sensor.kitchen_planner_dinners_planned",
@@ -133,12 +134,17 @@ h1 { font-size:34px; line-height:41px; font-weight:700; letter-spacing:.01em; ma
 .cta { display:block; width:100%; border:0; border-radius:12px; padding:15px; font-family:inherit; font-size:17px; line-height:22px; font-weight:600;
   background:var(--blue); color:#fff; cursor:pointer; margin-bottom:8px; }
 .cta.off { background:var(--card); color:var(--blue); }
+.rbar { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px; background:var(--bg); }
+.rbar .ttl { font-size:17px; font-weight:600; }
+.rframe { display:block; width:100%; border:0; height:calc(100vh - var(--header-height, 56px) - 52px); background:var(--card); }
 @media (max-width: 760px) { .cols { grid-template-columns:1fr; } .widgets { grid-template-columns:repeat(2,minmax(0,1fr)); } h1 { font-size:30px; } }
 `;
 
 class KitchenPlannerCard extends HTMLElement {
   setConfig(config) {
     this._view = (config && config.view) || "week";
+    this._mealie = String((config && config.mealie_url) || "http://192.168.1.46:9000").replace(/\/$/, "");
+    this._group = (config && config.mealie_group) || "home";
     this._todo = null;
     this._todoStamp = null;
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
@@ -146,10 +152,24 @@ class KitchenPlannerCard extends HTMLElement {
   getCardSize() { return 12; }
   getGridOptions() { return { columns: "full" }; }
 
+  connectedCallback() {
+    if (this._onLoc) return;
+    this._onLoc = () => { if (this._view === "recipes" && this._hass) this._renderRecipes(); };
+    window.addEventListener("location-changed", this._onLoc);
+    window.addEventListener("popstate", this._onLoc);
+  }
+  disconnectedCallback() {
+    if (!this._onLoc) return;
+    window.removeEventListener("location-changed", this._onLoc);
+    window.removeEventListener("popstate", this._onLoc);
+    this._onLoc = null;
+  }
+
   set hass(hass) {
     this._hass = hass;
     const dark = !!(hass.themes && hass.themes.darkMode);
     if (dark) this.setAttribute("dark", ""); else this.removeAttribute("dark");
+    if (this._view === "recipes") { this._renderRecipes(); return; }
     const tstate = hass.states[KP.todo];
     const stamp = tstate ? tstate.last_updated + tstate.state : null;
     if (this._view === "shop" && stamp !== this._todoStamp) { this._todoStamp = stamp; this._loadTodo(); }
@@ -204,9 +224,15 @@ class KitchenPlannerCard extends HTMLElement {
     const unmapped = this._a(KP.dinners, "unmapped", []);
     const left = this._a(KP.leftovers, "items", []);
     const rows = DAYS.map((d, i) => {
-      const meals = days.filter((x) => x.day === d).map((x) => x.name);
+      const today = days.filter((x) => x.day === d);
+      const meals = today.map((x) => x.name);
       const date = ws ? addDays(ws, i).toLocaleDateString("en-AU", { day: "numeric", month: "short" }) : "";
-      return `<div class="row tap" data-nav="/kitchen-planner/recipes"><div class="rt">
+      // Open that night's recipe: by its Mealie slug, or search the book for a
+      // planned recipe that is only a note; anything else opens the whole book.
+      const first = today[0];
+      const target = first && first.slug ? "?recipe=" + encodeURIComponent(first.slug)
+        : first && first.recipe_id ? "?search=" + encodeURIComponent(first.name) : "";
+      return `<div class="row tap" data-nav="/kitchen-planner/recipes${esc(target)}"><div class="rt">
         <div class="s">${esc(d)} ${esc(date)}</div>
         <div class="t ${meals.length ? "" : "muted"}">${meals.length ? esc(meals.join(", ")) : "Nothing planned"}</div></div>
         <ha-icon class="chev" icon="mdi:chevron-right"></ha-icon></div>`;
@@ -221,7 +247,7 @@ class KitchenPlannerCard extends HTMLElement {
       + this._widgets()
       + `<div class="cols"><div class="col">
           <div class="gh">This week</div><div class="group">${rows}</div>
-          <div class="gf">Tap a night to open the recipe book. Choose a recipe, then Add to meal plan.</div>${warn}
+          <div class="gf">Tap a night to open its recipe. To change a night, open the recipe book, choose a recipe, then Add to meal plan.</div>${warn}
         </div><div class="col">
           <div class="gh">Leftovers to use up</div><div class="group">${lrows}</div>
           <div class="gf">${left.length ? "What the packs for this week's dinners will leave spare. Dinner suggestions that use them up are coming next." : "Pick some dinners and anything that would go to waste shows up here."}</div>
@@ -357,6 +383,27 @@ class KitchenPlannerCard extends HTMLElement {
         <div class="cols"><div class="col"><div class="gh">Recent orders</div><div class="group">${recent || '<div class="row"><div class="rt"><div class="t muted">No orders yet</div></div></div>'}</div></div><div class="col"></div></div>`;
   }
 
+  _recipeUrl() {
+    const q = new URLSearchParams(window.location.search);
+    const slug = q.get("recipe"), search = q.get("search");
+    if (slug) return `${this._mealie}/g/${this._group}/r/${encodeURIComponent(slug)}`;
+    if (search) return `${this._mealie}/g/${this._group}?search=${encodeURIComponent(search)}`;
+    return this._mealie;
+  }
+  _renderRecipes() {
+    if (!this.shadowRoot) return;
+    const url = this._recipeUrl();
+    const frame = this.shadowRoot.querySelector("iframe");
+    if (frame) { if (url !== this._frameUrl) { this._frameUrl = url; frame.src = url; } return; }
+    this._frameUrl = url;
+    this.shadowRoot.innerHTML = `<style>${CSS}</style><div class="page" style="padding:0;min-height:0">
+      <div class="rbar"><button class="pill" data-nav="/kitchen-planner/week"><ha-icon icon="mdi:chevron-left"></ha-icon>This week</button>
+      <span class="ttl">Recipe book</span>
+      <button class="pill" data-nav="/kitchen-planner/recipes"><ha-icon icon="mdi:book-open-variant"></ha-icon>All recipes</button></div>
+      <iframe class="rframe" src="${esc(url)}" allow="fullscreen" referrerpolicy="no-referrer"></iframe></div>`;
+    this.shadowRoot.querySelectorAll("[data-nav]").forEach((el) => el.addEventListener("click", () => this._nav(el.dataset.nav)));
+  }
+
   _render() {
     if (!this._hass || !this.shadowRoot) return;
     let body;
@@ -398,4 +445,4 @@ class KitchenPlannerCard extends HTMLElement {
 if (!customElements.get("kitchen-planner-card")) customElements.define("kitchen-planner-card", KitchenPlannerCard);
 window.customCards = window.customCards || [];
 if (!window.customCards.find((c) => c.type === "kitchen-planner-card"))
-  window.customCards.push({ type: "kitchen-planner-card", name: "Kitchen Planner", description: "iOS-style kitchen views (week, shop, pantry, spend)" });
+  window.customCards.push({ type: "kitchen-planner-card", name: "Kitchen Planner", description: "iOS-style kitchen views (week, shop, pantry, spend, recipes)" });
