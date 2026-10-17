@@ -71,6 +71,20 @@
     "refresh": {
       "name": "Refresh",
       "description": "Re-read the Mealie dinner plan and rebuild the shopping list now."
+    },
+    "import_file": {
+      "name": "Import data file",
+      "description": "Replace one planner data file in the data folder. The previous version is kept as a .bak file.",
+      "fields": {
+        "filename": {
+          "name": "File",
+          "description": "Which planner data file to write."
+        },
+        "data": {
+          "name": "Data",
+          "description": "The file's JSON, gzip-compressed then base64-encoded."
+        }
+      }
     }
   }
 }

@@ -16,3 +16,4 @@ DEFAULT_DATA_DIR = "kitchen_planner"
 
 UPDATE_INTERVAL = timedelta(minutes=10)
 SERVICE_REFRESH = "refresh"
+SERVICE_IMPORT_FILE = "import_file"

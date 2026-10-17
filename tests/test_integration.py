@@ -133,3 +133,41 @@ async def test_missing_data_leaves_entities_unavailable(
     assert entry.state is ConfigEntryState.LOADED
     assert hass.states.get("sensor.kitchen_planner_dinners_planned").state == "unavailable"
     assert hass.states.get("button.kitchen_planner_refresh").state != "unavailable"
+
+
+async def test_import_file_writes_backs_up_and_refreshes(
+        hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path: Path) -> None:
+    import base64
+    import gzip
+    import json as _json
+
+    import pytest
+    from homeassistant.exceptions import ServiceValidationError
+
+    await _setup(hass, freezer, tmp_path)
+    folder = tmp_path / "kp"
+    before = (folder / "pantry-state.json").read_text()
+    new = {"cream_thickened": {"on_hand": {"qty": 300, "unit": "ml"}}}
+    payload = base64.b64encode(gzip.compress(_json.dumps(new).encode())).decode()
+
+    resp = await hass.services.async_call(
+        DOMAIN, "import_file", {"filename": "pantry-state.json", "data": payload},
+        blocking=True, return_response=True)
+    await hass.async_block_till_done()
+    assert resp["entries"] == 1
+    assert _json.loads((folder / "pantry-state.json").read_text()) == new
+    assert (folder / resp["backup"]).read_text() == before
+
+    # 300 mL now on hand covers the week's 350 mL down to 50 mL.
+    left = hass.states.get("sensor.kitchen_planner_leftovers")
+    assert left is not None
+
+    with pytest.raises(ServiceValidationError, match="not a planner data file"):
+        await hass.services.async_call(
+            DOMAIN, "import_file", {"filename": "../secrets.yaml", "data": payload},
+            blocking=True, return_response=True)
+    with pytest.raises(ServiceValidationError, match="gzip"):
+        await hass.services.async_call(
+            DOMAIN, "import_file", {"filename": "recipes.json", "data": "not-base64!"},
+            blocking=True, return_response=True)
+    assert (folder / "recipes.json").exists()

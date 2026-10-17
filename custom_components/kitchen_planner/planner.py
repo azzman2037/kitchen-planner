@@ -34,6 +34,39 @@ class DataMissing(Exception):
     """The data folder is missing files the planner cannot work without."""
 
 
+def import_file(folder: Path, filename: str, payload_b64gz: str,
+                stamp: str) -> dict[str, Any]:
+    """Write one planner data file from a gzip+base64 JSON payload.
+
+    Only the known data file names are accepted, the payload must decode to
+    valid JSON, and any existing file is kept as <name>.bak-<stamp> first so
+    every import can be rolled back.
+    """
+    import base64
+    import gzip
+
+    allowed = {name for name, _ in DATA_FILES.values()}
+    if filename not in allowed:
+        raise ValueError(f"{filename} is not a planner data file ({sorted(allowed)})")
+    try:
+        raw = gzip.decompress(base64.b64decode(payload_b64gz, validate=True))
+        parsed = json.loads(raw.decode("utf-8"))
+    except (ValueError, OSError) as err:
+        raise ValueError(f"payload for {filename} is not gzip+base64 JSON: {err}") from err
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / filename
+    backup = None
+    if target.exists():
+        backup = folder / f"{filename}.bak-{stamp}"
+        backup.write_bytes(target.read_bytes())
+    tmp = folder / f".{filename}.tmp"
+    tmp.write_text(json.dumps(parsed, indent=1, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(target)
+    size = len(parsed) if isinstance(parsed, (list, dict)) else 1
+    return {"file": filename, "entries": size,
+            "backup": backup.name if backup else None}
+
+
 def load_data(folder: Path) -> dict[str, Any]:
     """Read every planner data file. Optional files fall back to empty."""
     missing = [DATA_FILES[k][0] for k in REQUIRED

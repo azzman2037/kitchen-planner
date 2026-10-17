@@ -1,1 +1,21 @@
 refresh:
+import_file:
+  fields:
+    filename:
+      required: true
+      example: recipes.json
+      selector:
+        select:
+          options:
+            - recipes.json
+            - orders.json
+            - pantry-state.json
+            - pack-catalogue.json
+            - product-map.json
+            - mealie-map.json
+            - rotation-history.json
+    data:
+      required: true
+      selector:
+        text:
+          multiline: true

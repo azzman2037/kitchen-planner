@@ -1,12 +1,21 @@
 """Kitchen Planner: turn the Mealie dinner plan into a Coles-ready order."""
 from __future__ import annotations
 
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+)
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, SERVICE_REFRESH
+from .const import DOMAIN, SERVICE_IMPORT_FILE, SERVICE_REFRESH
 from .coordinator import KitchenPlannerCoordinator
+from .planner import import_file
 
 PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SENSOR, Platform.TODO]
 
@@ -27,8 +36,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: KitchenPlannerConfigEntr
         for e in hass.config_entries.async_loaded_entries(DOMAIN):
             await e.runtime_data.async_request_refresh()
 
+    async def _import(call: ServiceCall) -> ServiceResponse:
+        loaded = hass.config_entries.async_loaded_entries(DOMAIN)
+        if not loaded:
+            raise ServiceValidationError("Kitchen Planner is not set up")
+        coord: KitchenPlannerCoordinator = loaded[0].runtime_data
+        stamp = dt_util.now().strftime("%Y%m%d-%H%M%S")
+        try:
+            result = await hass.async_add_executor_job(
+                import_file, coord.data_dir, call.data["filename"],
+                call.data["data"], stamp)
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+        await coord.async_request_refresh()
+        return result
+
     if not hass.services.has_service(DOMAIN, SERVICE_REFRESH):
         hass.services.async_register(DOMAIN, SERVICE_REFRESH, _refresh)
+        hass.services.async_register(
+            DOMAIN, SERVICE_IMPORT_FILE, _import,
+            schema=vol.Schema({vol.Required("filename"): str, vol.Required("data"): str}),
+            supports_response=SupportsResponse.OPTIONAL)
     return True
 
 
