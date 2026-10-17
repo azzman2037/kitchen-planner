@@ -71,6 +71,17 @@
       "coles_order": {
         "name": "Coles order"
       }
+    },
+    "select": {
+      "week": {
+        "name": "Week",
+        "state": {
+          "this_week": "This week",
+          "next_week": "Next week",
+          "in_2_weeks": "In 2 weeks",
+          "in_3_weeks": "In 3 weeks"
+        }
+      }
     }
   },
   "services": {

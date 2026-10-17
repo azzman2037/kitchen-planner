@@ -258,3 +258,60 @@ async def test_placed_order_shows_as_ordered(
     items = r["todo.kitchen_planner_coles_order"]["items"]
     assert [(i["summary"], i["status"]) for i in items] == [("Coles Thickened Cream x1", "completed")]
     assert entry is not None
+
+
+async def test_week_select_switches_week_and_keeps_ticks(
+        hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path: Path) -> None:
+    await _setup(hass, freezer, tmp_path)
+    sel = hass.states.get("select.kitchen_planner_week")
+    assert sel.state == "next_week"
+    assert sel.attributes["weeks"]["this_week"] == "2026-10-12"
+    eid = "todo.kitchen_planner_coles_order"
+
+    async def _items() -> list[dict]:
+        r = await hass.services.async_call("todo", "get_items", {"entity_id": eid},
+                                           blocking=True, return_response=True)
+        return r[eid]["items"]
+
+    cream = next(i for i in await _items() if "cream" in i["summary"].lower())
+    await hass.services.async_call("todo", "update_item",
+                                   {"entity_id": eid, "item": cream["uid"], "status": "completed"},
+                                   blocking=True)
+    await hass.services.async_call("todo", "add_item",
+                                   {"entity_id": eid, "item": "Birthday candles"}, blocking=True)
+
+    await hass.services.async_call("select", "select_option",
+                                   {"entity_id": "select.kitchen_planner_week",
+                                    "option": "in_2_weeks"}, blocking=True)
+    await hass.async_block_till_done()
+    assert hass.states.get("select.kitchen_planner_week").state == "in_2_weeks"
+    call = hass.data["mealie_calls"][-1]
+    assert (call["start_date"], call["end_date"]) == ("2026-10-26", "2026-11-01")
+    dinners = hass.states.get("sensor.kitchen_planner_dinners_planned")
+    assert dinners.attributes["week_start"] == "2026-10-26"
+    assert dinners.attributes["week"] == "in_2_weeks"
+    assert dinners.state == "0"  # the fake plan only has 19-20 Oct
+    summaries = [i["summary"] for i in await _items()]
+    assert "Birthday candles" in summaries  # hand-added items belong to no week
+
+    await hass.services.async_call("select", "select_option",
+                                   {"entity_id": "select.kitchen_planner_week",
+                                    "option": "next_week"}, blocking=True)
+    await hass.async_block_till_done()
+    back = {i["uid"]: i for i in await _items()}
+    assert back[cream["uid"]]["status"] == "completed"  # the tick came back with its week
+
+
+async def test_have_switch_lasts_to_the_later_week(
+        hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path: Path) -> None:
+    import json as _json
+
+    await _setup(hass, freezer, tmp_path)
+    await hass.services.async_call("select", "select_option",
+                                   {"entity_id": "select.kitchen_planner_week",
+                                    "option": "this_week"}, blocking=True)
+    await hass.services.async_call("switch", "turn_on",
+                                   {"entity_id": "switch.kitchen_planner_have_thickened_cream"},
+                                   blocking=True)
+    pantry = _json.loads((tmp_path / "kp" / "pantry-state.json").read_text())
+    assert pantry["cream_thickened"]["on_hand"]["until"] == "2026-10-25"

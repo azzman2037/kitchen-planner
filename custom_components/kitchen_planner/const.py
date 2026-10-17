@@ -15,6 +15,16 @@ DEFAULT_HORIZON = 10
 DEFAULT_DATA_DIR = "kitchen_planner"
 
 UPDATE_INTERVAL = timedelta(minutes=10)
+
+# Which Monday-to-Sunday week the dashboard shows, counted from the week that
+# contains today. "next_week" is the week the weekend shop is for.
+WEEK_OPTIONS: dict[str, int] = {
+    "this_week": 0,
+    "next_week": 1,
+    "in_2_weeks": 2,
+    "in_3_weeks": 3,
+}
+DEFAULT_WEEK = "next_week"
 SERVICE_REFRESH = "refresh"
 SERVICE_IMPORT_FILE = "import_file"
 SERVICE_SET_ON_HAND = "set_on_hand"

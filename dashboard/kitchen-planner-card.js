@@ -12,7 +12,9 @@ const KP = {
   todo: "todo.kitchen_planner_coles_order",
   ready: "input_boolean.kitchen_order_ready",
   refresh: "button.kitchen_planner_refresh",
+  week: "select.kitchen_planner_week",
 };
+const WEEKS = [["this_week", "This week"], ["next_week", "Next week"], ["in_2_weeks", "In 2 weeks"], ["in_3_weeks", "In 3 weeks"]];
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const AISLE_ICON = {
   "fruit & vegetables": ["mdi:carrot", "#34C759"], "meat & seafood": ["mdi:food-steak", "#FF3B30"],
@@ -134,6 +136,12 @@ h1 { font-size:34px; line-height:41px; font-weight:700; letter-spacing:.01em; ma
 .cta { display:block; width:100%; border:0; border-radius:12px; padding:15px; font-family:inherit; font-size:17px; line-height:22px; font-weight:600;
   background:var(--blue); color:#fff; cursor:pointer; margin-bottom:8px; }
 .cta.off { background:var(--card); color:var(--blue); }
+.seg { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:2px; padding:2px; border-radius:10px; background:var(--fill); margin:0 0 20px; }
+.seg button { border:0; background:none; border-radius:8px; padding:6px 4px; font-family:inherit; color:var(--label); cursor:pointer; line-height:16px; }
+.seg button .a { display:block; font-size:13px; font-weight:600; }
+.seg button .b { display:block; font-size:11px; color:var(--label2); }
+.seg button.on { background:var(--card); box-shadow:0 3px 8px rgba(0,0,0,.12),0 3px 1px rgba(0,0,0,.04); }
+:host([dark]) .seg button.on { background:#636366; }
 .rbar { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px; background:var(--bg); }
 .rbar .ttl { font-size:17px; font-weight:600; }
 .rframe { display:block; width:100%; border:0; height:calc(100vh - var(--header-height, 56px) - 52px); background:var(--card); }
@@ -212,6 +220,13 @@ class KitchenPlannerCard extends HTMLElement {
   _top(eyebrow, title, actions) {
     return `<div class="top"><div><div class="eyebrow">${esc(eyebrow)}</div><h1>${esc(title)}</h1></div><div>${actions || ""}</div></div>`;
   }
+  _weekSeg() {
+    const st = this._s(KP.week);
+    if (!st) return "";
+    const weeks = st.attributes.weeks || {};
+    return `<div class="seg" role="tablist">${WEEKS.map(([key, label]) => `<button class="${st.state === key ? "on" : ""}" data-week="${key}" role="tab" aria-selected="${st.state === key}">
+      <span class="a">${esc(label)}</span><span class="b">${weeks[key] ? esc(fmtDate(weeks[key], { day: "numeric", month: "short" })) : ""}</span></button>`).join("")}</div>`;
+  }
   _unavailable() {
     return `<div class="group"><div class="banner"><ha-icon icon="mdi:alert-circle-outline"></ha-icon>
       <div class="t">Kitchen Planner isn't ready. Check the integration under Settings → Devices &amp; services.</div></div></div>`;
@@ -244,9 +259,10 @@ class KitchenPlannerCard extends HTMLElement {
       : `<div class="row"><div class="rt"><div class="t muted">Nothing left over yet</div></div></div>`;
     return this._top(ws ? "Week of " + fmtDate(ws, { weekday: "long", day: "numeric", month: "long" }) : "This week", "Dinners",
         `<button class="pill filled" data-nav="/kitchen-planner/recipes"><ha-icon icon="mdi:book-open-variant"></ha-icon>Recipe book</button>`)
+      + this._weekSeg()
       + this._widgets()
       + `<div class="cols"><div class="col">
-          <div class="gh">This week</div><div class="group">${rows}</div>
+          <div class="gh">Dinners</div><div class="group">${rows}</div>
           <div class="gf">Tap a night to open its recipe. To change a night, open the recipe book, choose a recipe, then Add to meal plan.</div>${warn}
         </div><div class="col">
           <div class="gh">Leftovers to use up</div><div class="group">${lrows}</div>
@@ -300,18 +316,25 @@ class KitchenPlannerCard extends HTMLElement {
     const missing = [].concat(this._a(KP.total, "unpriced", []), this._a(KP.total, "no_pack_size", []));
     const toCheck = this._a(KP.staples, "to_check", []);
     const collect = placed ? fmtDate(placed.date, { weekday: "short", day: "numeric", month: "short" }) : "";
+    const weekKey = this._s(KP.week) ? this._s(KP.week).state : "next_week";
+    const wsShop = this._a(KP.dinners, "week_start", null);
     const orderRow = ordered
       ? `<div class="row icon"><div class="ri" style="background:var(--green)"><ha-icon icon="mdi:cart-check"></ha-icon></div>
           <div class="rt"><div class="t">Order${placed && placed.number ? " #" + esc(placed.number) : ""} is in</div>
           <div class="s">Collect ${esc(collect)} · ${placed ? placed.lines : items.length} items · ${money(placed && placed.total)}</div></div></div>`
+      : weekKey !== "next_week"
+      ? `<div class="row icon"><div class="ri" style="background:var(--blue)"><ha-icon icon="mdi:calendar-week"></ha-icon></div>
+          <div class="rt"><div class="t">${weekKey === "this_week" ? "No order on record for this week" : "Planning ahead"}</div>
+          <div class="s">The list for the week of ${wsShop ? esc(fmtDate(wsShop, { day: "numeric", month: "long" })) : "this week"}, from the dinners picked so far</div></div></div>`
       : `<div class="row icon"><div class="ri" style="background:var(--green)"><ha-icon icon="mdi:cart-check"></ha-icon></div>
               <div class="rt"><div class="t">Ready to send to Coles</div><div class="s">${isReady ? "Claude fills the trolley on Saturday" : "Turn on when the week is picked"}</div></div>
               <button class="sw ${isReady ? "on" : ""}" data-ready="1" aria-label="Order ready"></button></div>`;
     const footer = ordered
       ? "This is what was ordered for the week. Anything added above goes on next week's list."
       : floor && missing.length ? "The estimate is a minimum: " + esc(missing.join(", ")) + " have no price on record." : "Tick items as they go in the trolley. Remove anything you don't need this week.";
-    return this._top(ordered ? "Ordered · collect " + collect : items.length + " items", "Shopping",
+    return this._top(ordered ? "Ordered · collect " + collect : items.length + (items.length === 1 ? " item" : " items"), "Shopping",
         `<button class="pill" data-refresh="1"><ha-icon icon="mdi:refresh"></ha-icon>Refresh</button>`)
+      + this._weekSeg()
       + this._widgets()
       + `<div class="cols"><div class="col">
           <div class="gh">Order</div>
@@ -431,6 +454,10 @@ class KitchenPlannerCard extends HTMLElement {
     }));
     const ready = root.querySelector("[data-ready]");
     if (ready) ready.addEventListener("click", () => { ready.classList.toggle("on"); this._call("input_boolean", "toggle", {}, { entity_id: KP.ready }); });
+    root.querySelectorAll("[data-week]").forEach((el) => el.addEventListener("click", () => {
+      root.querySelectorAll("[data-week]").forEach((b) => b.classList.toggle("on", b === el));
+      this._call("select", "select_option", { option: el.dataset.week }, { entity_id: KP.week });
+    }));
     const refresh = root.querySelector("[data-refresh]");
     if (refresh) refresh.addEventListener("click", () => this._call("button", "press", {}, { entity_id: KP.refresh }));
     const inp = root.getElementById("newitem");

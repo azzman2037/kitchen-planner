@@ -20,6 +20,7 @@ list built in Home Assistant matches one built from the command line.
 | `sensor.kitchen_planner_in_the_house` | Items marked as already in the house (`have`), plus the items the household has stopped buying (`not_buying`) |
 | `sensor.kitchen_planner_weekly_spend` | Last order's total, with every order's total in `history` and `average_last_8` |
 | `switch.kitchen_planner_have_*` | One-tap "we have one already" for ten common perishables. On = one pack in the house until the end of the planning week |
+| `select.kitchen_planner_week` | Which Monday-to-Sunday everything above shows: `this_week`, `next_week` (default, the week the weekend shop is for), `in_2_weeks`, `in_3_weeks`. Ticks and removals on the order list are kept per week |
 | `button.kitchen_planner_refresh` | Rebuild now. Also `kitchen_planner.refresh` |
 
 ### Services
@@ -34,9 +35,9 @@ Once an order collected on the Friday to Sunday before the planning week is in
 note titled with a planner recipe's name ("Chicken Cacciatore") counts as that
 recipe.
 
-The planning week is always the next Monday after today, so on Saturday it is
-the week the Sunday pickup feeds, and from Monday the family is already
-choosing next week's dinners.
+The week shown is chosen with `select.kitchen_planner_week`, counted from the
+week containing today, so "Next week" on a Saturday is the week the weekend
+pickup feeds, and the dates move on by themselves.
 
 ## Data
 

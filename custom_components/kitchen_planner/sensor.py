@@ -28,6 +28,7 @@ class KPSensorDescription(SensorEntityDescription):
 
 def _dinners(d: dict[str, Any]) -> dict[str, Any]:
     return {
+        "week": d.get("week"),
         "week_start": d["week_start"],
         "days": [{k: day[k] for k in ("date", "day", "name", "slug", "recipe_id")}
                  for day in d["days"]],

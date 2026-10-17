@@ -24,7 +24,7 @@ from .const import (
 from .coordinator import KitchenPlannerCoordinator
 from .planner import import_file
 
-PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SENSOR, Platform.SWITCH, Platform.TODO]
+PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SELECT, Platform.SENSOR, Platform.SWITCH, Platform.TODO]
 
 type KitchenPlannerConfigEntry = ConfigEntry[KitchenPlannerCoordinator]
 

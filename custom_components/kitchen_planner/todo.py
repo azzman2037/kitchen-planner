@@ -1,11 +1,13 @@
 """The Coles order as a to-do list the whole family can tick and add to.
 
 Generated lines come from the planner and are rebuilt on every refresh.
-Ticks, removals and hand-added items are kept in storage, keyed to the
-planning week, so they survive the rebuild and reset when the week rolls on.
+Ticks and removals are kept in storage per week, so switching the dashboard
+between weeks keeps each week's list as it was left. Hand-added items belong
+to no week: they stay until ticked.
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -19,6 +21,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .coordinator import KitchenPlannerCoordinator
@@ -26,6 +29,7 @@ from .entity import KitchenPlannerEntity
 from .planner import order_items
 
 STORAGE_VERSION = 1
+KEEP_WEEKS = 6
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
@@ -49,31 +53,40 @@ class ColesOrderList(KitchenPlannerEntity, TodoListEntity):
         super().__init__(coordinator, "coles_order")
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry_id}.coles_order")
-        self._state: dict[str, Any] = self._blank(None)
-
-    @staticmethod
-    def _blank(week: str | None) -> dict[str, Any]:
-        return {"week": week, "done": [], "removed": [], "manual": []}
+        self._state: dict[str, Any] = {"weeks": {}, "manual": []}
 
     async def async_load(self) -> None:
-        self._state = await self._store.async_load() or self._blank(None)
+        stored = await self._store.async_load() or {}
+        if "weeks" not in stored:  # 0.3.x kept one week at the top level
+            week = stored.get("week")
+            stored = {"weeks": ({week: {"done": stored.get("done", []),
+                                        "removed": stored.get("removed", [])}} if week else {}),
+                      "manual": stored.get("manual", [])}
+        self._state = stored
 
     async def _save(self) -> None:
         await self._store.async_save(self._state)
 
-    def _roll_week(self) -> None:
-        week = (self.coordinator.data or {}).get("week_start")
-        if week and self._state.get("week") != week:
-            # Hand-added items carry over until they are ticked; the rest resets.
-            manual = [m for m in self._state["manual"] if m["status"] != "completed"]
-            self._state = {**self._blank(week), "manual": manual}
-            self.hass.async_create_task(self._save())
+    def _week(self) -> dict[str, list[str]]:
+        """Ticks and removals for the week on screen."""
+        week = (self.coordinator.data or {}).get("week_start") or "none"
+        return self._state["weeks"].setdefault(week, {"done": [], "removed": []})
+
+    def _prune(self) -> None:
+        weeks = self._state["weeks"]
+        for old in sorted(weeks)[:-KEEP_WEEKS]:
+            del weeks[old]
+        # A ticked hand-added item drops off a week after it was ticked.
+        cutoff = (dt_util.now().date() - timedelta(days=7)).isoformat()
+        self._state["manual"] = [m for m in self._state["manual"]
+                                 if not (m.get("done_on") and m["done_on"] < cutoff)]
 
     @property
     def todo_items(self) -> list[TodoItem]:
         if self.coordinator.data is None:
             return []
-        done, removed = set(self._state["done"]), set(self._state["removed"])
+        wk = self._week()
+        done, removed = set(wk["done"]), set(wk["removed"])
         items = [
             TodoItem(
                 uid=line["uid"], summary=line["summary"],
@@ -110,13 +123,18 @@ class ColesOrderList(KitchenPlannerEntity, TodoListEntity):
                     m["summary"] = item.summary or m["summary"]
                     m["description"] = item.description
                     m["status"] = (item.status or TodoItemStatus.NEEDS_ACTION).value
+                    if m["status"] == TodoItemStatus.COMPLETED.value:
+                        m.setdefault("done_on", dt_util.now().date().isoformat())
+                    else:
+                        m.pop("done_on", None)
         else:
-            done = set(self._state["done"])
+            wk = self._week()
+            done = set(wk["done"])
             if item.status == TodoItemStatus.COMPLETED:
                 done.add(uid)
             else:
                 done.discard(uid)
-            self._state["done"] = sorted(done)
+            wk["done"] = sorted(done)
         await self._save()
         self.async_write_ha_state()
 
@@ -124,16 +142,16 @@ class ColesOrderList(KitchenPlannerEntity, TodoListEntity):
         manual = [u for u in uids if u.startswith("manual:")]
         self._state["manual"] = [m for m in self._state["manual"]
                                  if m["uid"] not in manual]
-        removed = set(self._state["removed"]) | {u for u in uids if u not in manual}
-        self._state["removed"] = sorted(removed)
+        wk = self._week()
+        wk["removed"] = sorted(set(wk["removed"]) | {u for u in uids if u not in manual})
         await self._save()
         self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        self._roll_week()
+        self._prune()
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        self._roll_week()
+        self._prune()
         super()._handle_coordinator_update()

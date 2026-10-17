@@ -21,8 +21,10 @@ from .const import (
     DEFAULT_DATA_DIR,
     DEFAULT_HORIZON,
     DEFAULT_SERVES,
+    DEFAULT_WEEK,
     DOMAIN,
     UPDATE_INTERVAL,
+    WEEK_OPTIONS,
 )
 from .planner import (
     DataMissing,
@@ -33,6 +35,7 @@ from .planner import (
     pack_for,
     set_on_hand,
     upcoming_week_start,
+    week_start_for,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -54,6 +57,19 @@ class KitchenPlannerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.mealie_entry_id: str | None = conf.get(CONF_MEALIE_ENTRY)
         self.data_dir = Path(hass.config.path(conf.get(CONF_DATA_DIR, DEFAULT_DATA_DIR)))
         self.catalogue: dict[str, Any] = {}
+        self.week: str = DEFAULT_WEEK
+
+    def week_starts(self) -> dict[str, date]:
+        today = dt_util.now().date()
+        return {opt: week_start_for(today, off) for opt, off in WEEK_OPTIONS.items()}
+
+    async def async_set_week(self, option: str) -> None:
+        """Show a different week; the list and dinners rebuild at once."""
+        if option not in WEEK_OPTIONS:
+            raise HomeAssistantError(f"Unknown week {option}")
+        if option != self.week:
+            self.week = option
+            await self.async_refresh()
 
     def _mealie_entry(self) -> str:
         entries = [e for e in self.hass.config_entries.async_entries(MEALIE)
@@ -66,7 +82,7 @@ class KitchenPlannerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         raise UpdateFailed("Mealie is not set up or not loaded")
 
     async def _async_update_data(self) -> dict[str, Any]:
-        week_start = upcoming_week_start(dt_util.now().date())
+        week_start = self.week_starts()[self.week]
         week_end = week_start + timedelta(days=6)
 
         try:
@@ -89,8 +105,9 @@ class KitchenPlannerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         mealplans = (resp or {}).get("mealplan") or []
         recipes = {r["id"]: r for r in data["recipes"]}
         plan = build_week(mealplans, data["mealie_map"], recipes, week_start)
-        return await self.hass.async_add_executor_job(
+        result = await self.hass.async_add_executor_job(
             lambda: compute(data, plan, serves=self.serves, horizon=self.horizon))
+        return {**result, "week": self.week}
 
     # --- pantry writes ---------------------------------------------------
 
@@ -109,8 +126,10 @@ class KitchenPlannerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 qty: float | None = None, unit: str | None = None,
                                 until: date | None = None) -> None:
         today = dt_util.now().date()
-        week_start = upcoming_week_start(today)
-        until = until or week_start + timedelta(days=6)
+        # Lasts to the end of the week on screen, and never ends before the
+        # coming week's shop, so a tap counts for the order that matters.
+        shown = self.week_starts()[self.week]
+        until = until or max(upcoming_week_start(today), shown) + timedelta(days=6)
         if qty is None:
             pack = pack_for(self.catalogue, canonical)
             if pack is None:

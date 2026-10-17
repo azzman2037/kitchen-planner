@@ -82,6 +82,11 @@ def load_data(folder: Path) -> dict[str, Any]:
     return out
 
 
+def week_start_for(today: date, offset: int) -> date:
+    """Monday of the week `offset` weeks after the one containing today."""
+    return today - timedelta(days=today.weekday()) + timedelta(weeks=offset)
+
+
 def upcoming_week_start(today: date) -> date:
     """The Monday the family is planning for.
 

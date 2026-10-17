@@ -191,3 +191,15 @@ def test_placed_order_replaces_the_list_to_buy() -> None:
     assert all(i["ordered"] for i in items)
     assert items[0]["summary"] == "Coles Thickened Cream x1"
     assert items[1]["description"].endswith("not supplied")
+
+
+@pytest.mark.parametrize(("today", "offset", "expected"), [
+    (date(2026, 10, 17), 0, date(2026, 10, 12)),   # Saturday: this week began Monday 12th
+    (date(2026, 10, 17), 1, date(2026, 10, 19)),   # next week = the weekend shop's week
+    (date(2026, 10, 19), 0, date(2026, 10, 19)),   # Monday is its own week
+    (date(2026, 10, 25), 2, date(2026, 11, 2)),
+])
+def test_week_start_for(today: date, offset: int, expected: date) -> None:
+    from custom_components.kitchen_planner.planner import week_start_for
+    assert week_start_for(today, offset) == expected
+    assert week_start_for(today, 1) == upcoming_week_start(today)
