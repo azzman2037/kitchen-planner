@@ -43,6 +43,7 @@ def _total(d: dict[str, Any]) -> dict[str, Any]:
         "unpriced": d["unpriced"],
         "no_pack_size": d["no_pack_size"],
         "problems": d["problems"],
+        "aisles": d["aisles"],
     }
 
 
@@ -72,6 +73,23 @@ SENSORS: tuple[KPSensorDescription, ...] = (
         key="staples_due", icon="mdi:basket-fill",
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda d: len(d["staples"]), attrs=_staples,
+    ),
+    KPSensorDescription(
+        key="in_the_house", icon="mdi:fridge",
+        value=lambda d: len(d["pantry"]["have"]),
+        attrs=lambda d: dict(d["pantry"]),
+    ),
+    KPSensorDescription(
+        key="weekly_spend", icon="mdi:chart-line",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement="AUD", suggested_display_precision=2,
+        value=lambda d: d["spend"][-1]["total"] if d["spend"] else None,
+        attrs=lambda d: {
+            "history": d["spend"],
+            "last_order": d["spend"][-1]["date"] if d["spend"] else None,
+            "average_last_8": (round(sum(x["total"] for x in d["spend"][-8:])
+                                     / len(d["spend"][-8:]), 2) if d["spend"] else None),
+        },
     ),
     KPSensorDescription(
         key="leftovers", icon="mdi:fridge-alert-outline",

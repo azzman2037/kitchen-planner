@@ -54,6 +54,12 @@
       },
       "leftovers": {
         "name": "Leftovers"
+      },
+      "in_the_house": {
+        "name": "In the house"
+      },
+      "weekly_spend": {
+        "name": "Weekly spend"
       }
     },
     "button": {
@@ -83,6 +89,42 @@
         "data": {
           "name": "Data",
           "description": "The file's JSON, gzip-compressed then base64-encoded."
+        }
+      }
+    },
+    "set_on_hand": {
+      "name": "Set on hand",
+      "description": "Record that an item is already in the house, so this week's list buys less of it. Expires at the end of the planning week unless 'until' is given.",
+      "fields": {
+        "canonical": {
+          "name": "Item",
+          "description": "Canonical ingredient id, e.g. cream_thickened."
+        },
+        "packs": {
+          "name": "Packs",
+          "description": "How many of the smallest catalogue pack you have. Used when qty is not given."
+        },
+        "qty": {
+          "name": "Quantity",
+          "description": "Exact amount on hand."
+        },
+        "unit": {
+          "name": "Unit",
+          "description": "Unit for quantity."
+        },
+        "until": {
+          "name": "Until",
+          "description": "Last day this counts; defaults to the end of the planning week."
+        }
+      }
+    },
+    "clear_on_hand": {
+      "name": "Clear on hand",
+      "description": "Remove an item from what's in the house.",
+      "fields": {
+        "canonical": {
+          "name": "Item",
+          "description": "Canonical ingredient id."
         }
       }
     }

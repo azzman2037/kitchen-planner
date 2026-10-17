@@ -111,3 +111,34 @@ def test_mixed_unit_history_is_deterministic_and_priced() -> None:
     cat = backfill_prices(catalogue_packs({"passata": {"packs": [
         {"product": "Tomato Passata 700g", "size": 700, "unit": "g", "price": None}]}}), hist)
     assert cat["passata"][0].price == 2.0
+
+
+def test_active_pantry_drops_expired_and_keeps_legacy() -> None:
+    from custom_components.kitchen_planner.planner import active_pantry
+
+    pantry = {
+        "_readme": ["x"],
+        "cream_thickened": {"on_hand": {"qty": 300, "unit": "ml", "until": "2026-10-18"}},
+        "spinach": {"on_hand": {"qty": 120, "unit": "g", "until": "2026-10-25"}},
+        "beef_rump": {"on_hand": {"qty": 450, "unit": "g"}, "note": "legacy, no until"},
+        "orange": {"have_until": "2099-01-01",
+                   "on_hand": {"qty": 1, "unit": "each", "until": "2026-01-01"}},
+    }
+    out = active_pantry(pantry, MON)
+    assert "cream_thickened" not in out          # expired before the week
+    assert out["spinach"]["on_hand"]["qty"] == 120
+    assert out["beef_rump"]["on_hand"]["qty"] == 450   # legacy kept, shown on dashboard
+    assert out["orange"] == {"have_until": "2099-01-01"}  # stop-buying flag survives
+
+
+def test_set_and_clear_on_hand_preserve_other_keys() -> None:
+    from custom_components.kitchen_planner.planner import clear_on_hand, set_on_hand
+
+    p = {"orange": {"have_until": "2099-01-01", "note": "stopped"}}
+    p2 = set_on_hand(p, "orange", 2, "each", date(2026, 10, 25), date(2026, 10, 17))
+    assert p2["orange"]["have_until"] == "2099-01-01"
+    assert p2["orange"]["on_hand"]["until"] == "2026-10-25"
+    assert "on_hand" not in p  # input untouched
+    p3 = clear_on_hand(p2, "orange")
+    assert p3["orange"] == {"have_until": "2099-01-01", "note": "stopped"}
+    assert clear_on_hand(set_on_hand({}, "x", 1, "each", MON, MON), "x") == {}

@@ -19,3 +19,37 @@ import_file:
       selector:
         text:
           multiline: true
+set_on_hand:
+  fields:
+    canonical:
+      required: true
+      example: cream_thickened
+      selector:
+        text:
+    packs:
+      example: 1
+      selector:
+        number:
+          min: 0.25
+          max: 10
+          step: 0.25
+    qty:
+      selector:
+        number:
+          min: 0
+          max: 10000
+          mode: box
+    unit:
+      selector:
+        select:
+          options: ["g", "ml", "each"]
+    until:
+      selector:
+        date:
+clear_on_hand:
+  fields:
+    canonical:
+      required: true
+      example: cream_thickened
+      selector:
+        text:

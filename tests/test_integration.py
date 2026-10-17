@@ -171,3 +171,49 @@ async def test_import_file_writes_backs_up_and_refreshes(
             DOMAIN, "import_file", {"filename": "recipes.json", "data": "not-base64!"},
             blocking=True, return_response=True)
     assert (folder / "recipes.json").exists()
+
+
+async def test_have_switch_reduces_list_and_expires(
+        hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path: Path) -> None:
+    import json as _json
+
+    await _setup(hass, freezer, tmp_path)
+    sw = "switch.kitchen_planner_have_thickened_cream"
+    assert hass.states.get(sw).state == "off"
+
+    async def _cream_line() -> str:
+        r = await hass.services.async_call(
+            "todo", "get_items", {"entity_id": "todo.kitchen_planner_coles_order"},
+            blocking=True, return_response=True)
+        return next(i for i in r["todo.kitchen_planner_coles_order"]["items"]
+                    if i["uid"] == "kp:cream_thickened")["description"]
+
+    assert "(150 ml)" in await _cream_line()
+
+    await hass.services.async_call("switch", "turn_on", {"entity_id": sw}, blocking=True)
+    await hass.async_block_till_done()
+    assert hass.states.get(sw).state == "on"
+    pantry = _json.loads((tmp_path / "kp" / "pantry-state.json").read_text())
+    assert pantry["cream_thickened"]["on_hand"] == {
+        "qty": 300.0, "unit": "ml", "until": "2026-10-25",
+        "added": "2026-10-17", "source": "dashboard"}
+    assert (tmp_path / "kp" / "pantry-state.json.bak").exists()
+    house = hass.states.get("sensor.kitchen_planner_in_the_house")
+    assert house.state == "1"
+    assert house.attributes["have"][0]["amount"] == "300 ml"
+
+    await hass.services.async_call("switch", "turn_off", {"entity_id": sw}, blocking=True)
+    await hass.async_block_till_done()
+    assert hass.states.get(sw).state == "off"
+    assert "cream_thickened" not in _json.loads(
+        (tmp_path / "kp" / "pantry-state.json").read_text())
+
+
+async def test_weekly_spend_and_aisles(
+        hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path: Path) -> None:
+    await _setup(hass, freezer, tmp_path)
+    total = hass.states.get("sensor.kitchen_planner_estimated_total")
+    assert "dairy, eggs & fridge" in total.attributes["aisles"]
+    spend = hass.states.get("sensor.kitchen_planner_weekly_spend")
+    assert spend.state == "unknown"  # fixture orders carry no trolley_total
+    assert spend.attributes["history"] == []

@@ -17,7 +17,16 @@ list built in Home Assistant matches one built from the command line.
 | `sensor.kitchen_planner_staples_due` | Staples due for the Sunday pickup, from each item's own purchase cycle |
 | `sensor.kitchen_planner_leftovers` | Perishable, unfreezable surplus the chosen packs leave (the half tub of cream) |
 | `todo.kitchen_planner_coles_order` | The order as a to-do list. Generated lines rebuild automatically; ticks, removals and hand-added items are kept for the week |
+| `sensor.kitchen_planner_in_the_house` | Items marked as already in the house (`have`), plus the items the household has stopped buying (`not_buying`) |
+| `sensor.kitchen_planner_weekly_spend` | Last order's total, with every order's total in `history` and `average_last_8` |
+| `switch.kitchen_planner_have_*` | One-tap "we have one already" for ten common perishables. On = one pack in the house until the end of the planning week |
 | `button.kitchen_planner_refresh` | Rebuild now. Also `kitchen_planner.refresh` |
+
+### Services
+
+- `kitchen_planner.set_on_hand` (`canonical`, `packs` or `qty`+`unit`, optional `until`) and `kitchen_planner.clear_on_hand`: write `pantry-state.json` with a `.bak`. Entries expire at the end of the planning week; older entries without an expiry stay until cleared.
+- `kitchen_planner.import_file`: replace one data file from gzip+base64 JSON, keeping `<name>.bak-<timestamp>`.
+- `kitchen_planner.refresh`.
 
 The planning week is always the next Monday after today, so on Saturday it is
 the week the Sunday pickup feeds, and from Monday the family is already

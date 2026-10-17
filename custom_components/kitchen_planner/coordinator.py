@@ -1,8 +1,9 @@
 """Coordinator: reads the Mealie dinner plan and runs the planner engine."""
 from __future__ import annotations
 
+import json
 import logging
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,16 @@ from .const import (
     DOMAIN,
     UPDATE_INTERVAL,
 )
-from .planner import DataMissing, build_week, compute, load_data, upcoming_week_start
+from .planner import (
+    DataMissing,
+    build_week,
+    clear_on_hand,
+    compute,
+    load_data,
+    pack_for,
+    set_on_hand,
+    upcoming_week_start,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +53,7 @@ class KitchenPlannerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.horizon = int(conf.get(CONF_HORIZON, DEFAULT_HORIZON))
         self.mealie_entry_id: str | None = conf.get(CONF_MEALIE_ENTRY)
         self.data_dir = Path(hass.config.path(conf.get(CONF_DATA_DIR, DEFAULT_DATA_DIR)))
+        self.catalogue: dict[str, Any] = {}
 
     def _mealie_entry(self) -> str:
         entries = [e for e in self.hass.config_entries.async_entries(MEALIE)
@@ -74,8 +85,44 @@ class KitchenPlannerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except HomeAssistantError as err:
             raise UpdateFailed(f"Could not read the Mealie meal plan: {err}") from err
 
+        self.catalogue = data["catalogue"]
         mealplans = (resp or {}).get("mealplan") or []
         recipes = {r["id"]: r for r in data["recipes"]}
         plan = build_week(mealplans, data["mealie_map"], recipes, week_start)
         return await self.hass.async_add_executor_job(
             lambda: compute(data, plan, serves=self.serves, horizon=self.horizon))
+
+    # --- pantry writes ---------------------------------------------------
+
+    def _write_pantry(self, change) -> None:
+        """Read-modify-write pantry-state.json atomically, keeping a .bak."""
+        path = self.data_dir / "pantry-state.json"
+        current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        updated = change(current)
+        if path.exists():
+            (self.data_dir / "pantry-state.json.bak").write_bytes(path.read_bytes())
+        tmp = self.data_dir / ".pantry-state.json.tmp"
+        tmp.write_text(json.dumps(updated, indent=1, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+
+    async def async_set_on_hand(self, canonical: str, *, packs: float | None = None,
+                                qty: float | None = None, unit: str | None = None,
+                                until: date | None = None) -> None:
+        today = dt_util.now().date()
+        week_start = upcoming_week_start(today)
+        until = until or week_start + timedelta(days=6)
+        if qty is None:
+            pack = pack_for(self.catalogue, canonical)
+            if pack is None:
+                raise HomeAssistantError(
+                    f"No pack size on record for {canonical}; give qty and unit instead")
+            qty, unit = pack[0] * (packs or 1), pack[1]
+        await self.hass.async_add_executor_job(
+            self._write_pantry,
+            lambda p: set_on_hand(p, canonical, float(qty), unit or "each", until, today))
+        await self.async_refresh()  # immediate: a tapped switch must flip now
+
+    async def async_clear_on_hand(self, canonical: str) -> None:
+        await self.hass.async_add_executor_job(
+            self._write_pantry, lambda p: clear_on_hand(p, canonical))
+        await self.async_refresh()

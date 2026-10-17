@@ -165,14 +165,96 @@ def _surplus_rows(rows: list[dict], catalogue: dict) -> list[dict]:
     return sorted(out, key=lambda s: -s["waste_pct"])
 
 
+NOT_BUYING_AFTER = date(2090, 1, 1)
+
+
+def active_pantry(pantry: dict[str, Any], week_start: date) -> dict[str, Any]:
+    """Drop on-hand entries whose `until` date is before the planning week.
+
+    Entries without `until` (written by hand before the dashboard existed)
+    are kept, so nothing silently disappears; the dashboard lists them so
+    they can be cleared.
+    """
+    out: dict[str, Any] = {}
+    for key, entry in pantry.items():
+        if key.startswith("_") or not isinstance(entry, dict):
+            out[key] = entry
+            continue
+        until = (entry.get("on_hand") or {}).get("until")
+        if until and date.fromisoformat(until) < week_start:
+            entry = {k: v for k, v in entry.items() if k != "on_hand"}
+            if not entry or set(entry) <= {"note"}:
+                continue
+        out[key] = entry
+    return out
+
+
+def pack_for(catalogue: dict[str, Any], canonical: str) -> tuple[float, str, str] | None:
+    """Smallest catalogue pack for an item: (size, unit, product)."""
+    entry = catalogue.get(canonical)
+    if not isinstance(entry, dict) or not entry.get("packs"):
+        return None
+    p = min(entry["packs"], key=lambda x: float(x["size"]))
+    return float(p["size"]), p.get("unit", "each"), p["product"]
+
+
+def set_on_hand(pantry: dict[str, Any], canonical: str, qty: float, unit: str,
+                until: date, today: date, source: str = "dashboard") -> dict[str, Any]:
+    """Return a copy of pantry-state with one on-hand entry added or replaced.
+
+    Other keys on the item (have_until, notes) are preserved.
+    """
+    out = dict(pantry)
+    entry = dict(out.get(canonical) or {})
+    entry["on_hand"] = {"qty": qty, "unit": unit, "until": until.isoformat(),
+                        "added": today.isoformat(), "source": source}
+    out[canonical] = entry
+    return out
+
+
+def clear_on_hand(pantry: dict[str, Any], canonical: str) -> dict[str, Any]:
+    out = dict(pantry)
+    entry = {k: v for k, v in (out.get(canonical) or {}).items() if k != "on_hand"}
+    if entry and set(entry) - {"note"}:
+        out[canonical] = entry
+    else:
+        out.pop(canonical, None)
+    return out
+
+
+def pantry_view(pantry: dict[str, Any], catalogue: dict[str, Any]) -> dict[str, list]:
+    """What the dashboard shows under "In the house" and "Not buying"."""
+    have, not_buying = [], []
+    for key, entry in sorted(pantry.items()):
+        if key.startswith("_") or not isinstance(entry, dict):
+            continue
+        label = (pack_for(catalogue, key) or (0, "", key.replace("_", " ")))[2]
+        oh = entry.get("on_hand")
+        if oh:
+            have.append({"canonical": key, "label": label,
+                         "amount": pretty_qty(float(oh.get("qty") or 0), oh.get("unit", "each")),
+                         "until": oh.get("until"), "source": oh.get("source", "manual")})
+        hu = entry.get("have_until")
+        if hu and date.fromisoformat(hu) >= NOT_BUYING_AFTER:
+            not_buying.append({"canonical": key, "label": label})
+    return {"have": have, "not_buying": not_buying}
+
+
+def spend_history(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{"date": o["date"], "total": round(float(o["trolley_total"]), 2)}
+            for o in sorted(orders, key=lambda o: o.get("date") or "")
+            if o.get("date") and o.get("trolley_total")]
+
+
 def compute(data: dict[str, Any], plan: WeekPlan, *, serves: int = 4,
             horizon: int = 10) -> dict[str, Any]:
     """Run the engine for one week and shape the result for Home Assistant."""
     recipes = {r["id"]: r for r in data["recipes"]}
     as_of = plan.week_start - timedelta(days=1)  # the Sunday pickup
-    staples = forecast(data["orders"], data["pantry"], as_of, horizon)
+    pantry = active_pantry(data["pantry"], plan.week_start)
+    staples = forecast(data["orders"], pantry, as_of, horizon)
     res = compute_list(plan.as_engine_plan(), recipes, data["orders"],
-                       data["pantry"], data["catalogue"], staples,
+                       pantry, data["catalogue"], staples,
                        serves=serves)
 
     rows = []
@@ -203,7 +285,17 @@ def compute(data: dict[str, Any], plan: WeekPlan, *, serves: int = 4,
         "on_hand_notes": res["on_hand_notes"],
         "problems": res["problems"],
         "leftovers": _surplus_rows(rows, data["catalogue"]),
+        "aisles": _by_aisle(rows),
+        "pantry": pantry_view(pantry, data["catalogue"]),
+        "spend": spend_history(data["orders"]),
     }
+
+
+def _by_aisle(rows: list[dict]) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    for r in rows:
+        out.setdefault(r["aisle"], []).append(r["buy"])
+    return out
 
 
 def order_items(result: dict[str, Any]) -> list[dict[str, str]]:

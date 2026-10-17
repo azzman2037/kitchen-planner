@@ -11,13 +11,20 @@ from homeassistant.core import (
     SupportsResponse,
 )
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, SERVICE_IMPORT_FILE, SERVICE_REFRESH
+from .const import (
+    DOMAIN,
+    SERVICE_CLEAR_ON_HAND,
+    SERVICE_IMPORT_FILE,
+    SERVICE_REFRESH,
+    SERVICE_SET_ON_HAND,
+)
 from .coordinator import KitchenPlannerCoordinator
 from .planner import import_file
 
-PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SENSOR, Platform.TODO]
+PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SENSOR, Platform.SWITCH, Platform.TODO]
 
 type KitchenPlannerConfigEntry = ConfigEntry[KitchenPlannerCoordinator]
 
@@ -50,6 +57,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: KitchenPlannerConfigEntr
             raise ServiceValidationError(str(err)) from err
         await coord.async_request_refresh()
         return result
+
+    def _coord() -> KitchenPlannerCoordinator:
+        loaded = hass.config_entries.async_loaded_entries(DOMAIN)
+        if not loaded:
+            raise ServiceValidationError("Kitchen Planner is not set up")
+        return loaded[0].runtime_data
+
+    async def _set_on_hand(call: ServiceCall) -> None:
+        d = call.data
+        if ("qty" in d) != ("unit" in d):
+            raise ServiceValidationError("Give qty and unit together, or packs")
+        await _coord().async_set_on_hand(
+            d["canonical"], packs=d.get("packs"), qty=d.get("qty"),
+            unit=d.get("unit"), until=d.get("until"))
+
+    async def _clear_on_hand(call: ServiceCall) -> None:
+        await _coord().async_clear_on_hand(call.data["canonical"])
+
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_ON_HAND):
+        hass.services.async_register(DOMAIN, SERVICE_SET_ON_HAND, _set_on_hand, schema=vol.Schema({
+            vol.Required("canonical"): cv.string,
+            vol.Optional("packs"): vol.Coerce(float),
+            vol.Optional("qty"): vol.Coerce(float),
+            vol.Optional("unit"): vol.In(["g", "ml", "each"]),
+            vol.Optional("until"): cv.date,
+        }))
+        hass.services.async_register(DOMAIN, SERVICE_CLEAR_ON_HAND, _clear_on_hand,
+                                     schema=vol.Schema({vol.Required("canonical"): cv.string}))
 
     if not hass.services.has_service(DOMAIN, SERVICE_REFRESH):
         hass.services.async_register(DOMAIN, SERVICE_REFRESH, _refresh)
